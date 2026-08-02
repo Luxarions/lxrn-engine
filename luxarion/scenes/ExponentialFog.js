@@ -7,7 +7,7 @@
  */
 
 import Fog from './Fog.js';
-import Scene from '../core/Scene.js';  
+import Scene from './Scene.js';  
 import { Logger } from '../utils/Logger.js';
 
 class ExponentialFog extends Fog {
