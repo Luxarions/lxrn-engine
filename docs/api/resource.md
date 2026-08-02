@@ -1,0 +1,3 @@
+# RESOURCE
+
+Dokumentasi untuk resource.

@@ -1,0 +1,3 @@
+# CORE
+
+Dokumentasi untuk core.

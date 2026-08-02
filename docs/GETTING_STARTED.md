@@ -1,0 +1,3 @@
+# GETTING STARTED
+
+Dokumentasi untuk GETTING_STARTED.
