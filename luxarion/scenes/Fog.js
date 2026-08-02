@@ -1,6 +1,7 @@
 /**
  * Fog.js - Base fog class for LXRN Engine.
- * Requires Scene for rendering and camera data.
+ * Extends EventEmitter for event-driven communication.
+ * Provides fog effects for 3D scenes with enable/disable control.
  * 
  * @module Fog
  * @author LXRN
@@ -9,14 +10,17 @@
 
 import { Color } from '../math/Color.js';
 import { Logger } from '../utils/Logger.js';
-import Scene from './Scene.js'; 
+import EventEmitter from '../core/EventEmitter.js';
+import Scene from '../core/Scene.js';
 
-class Fog {
+class Fog extends EventEmitter {  // ← EXTEND EVENTEMITTER!
     #type = 'none';
     #enabled = true;
     #density = 0.01;
     #color = new Color(0x000000);
-    #scene = null;  
+    #scene = null;
+    #autoUpdate = true;
+    #isDestroyed = false;
     
     __uniforms = {};
     __shaderCache = null;
@@ -31,6 +35,8 @@ class Fog {
     active = true;
 
     constructor(options = {}) {
+        super();  // ← PANGGIL EVENTEMITTER!
+        
         this.#type = options.type || 'none';
         this.#density = options.density || 0.01;
         this.#color = options.color instanceof Color ? options.color : new Color(options.color || 0x000000);
@@ -38,112 +44,148 @@ class Fog {
         this._far = options.far !== undefined ? options.far : 1000;
         this.name = options.name || 'Fog';
         
-        // SET SCENE REFERENCE!
+        if (options.enabled !== undefined) {
+            this.#enabled = options.enabled;
+            this.active = options.enabled;
+        }
+        
+        if (options.autoUpdate !== undefined) {
+            this.#autoUpdate = options.autoUpdate;
+        }
+        
         if (options.scene instanceof Scene) {
             this.#scene = options.scene;
         }
         
         this.__uniforms = this.#generateUniforms();
+        
+        // EMIT EVENT!
+        this.emit('created', { fog: this, type: this.#type });
         Logger.log(`Fog created: ${this.name} (${this.#type})`);
     }
 
-    /**
-     * Gets the scene this fog belongs to.
-     * 
-     * @returns {Scene|null} Scene instance
-     */
-    get scene() {
-        return this.#scene;
-    }
-
-    /**
-     * Sets the scene this fog belongs to.
-     * 
-     * @param {Scene} scene - Scene instance
-     */
-    set scene(scene) {
-        if (scene instanceof Scene) {
-            this.#scene = scene;
-            Logger.log(`Fog "${this.name}" attached to scene: ${scene.name}`);
-        }
-    }
-
-    /**
-     * Gets camera from scene.
-     * 
-     * @returns {Camera|null} Camera instance
-     */
-    getCamera() {
-        return this.#scene ? this.#scene._camera : null;
-    }
-
-    /**
-     * Gets viewport from scene.
-     * 
-     * @returns {Object} Viewport data
-     */
-    getViewport() {
-        return this.#scene ? this.#scene._viewport : { x: 0, y: 0, width: 800, height: 600 };
-    }
-
-    /**
-     * Gets WebGL context from scene.
-     * 
-     * @returns {WebGLRenderingContext|null} WebGL context
-     */
-    getContext() {
-        return this.#scene ? this.#scene.__webglContext : null;
-    }
-
+    get scene() { return this.#scene; }
     get type() { return this.#type; }
     get color() { return this.#color; }
     get density() { return this.#density; }
     get near() { return this._near; }
     get far() { return this._far; }
     get isEnabled() { return this.#enabled; }
+    get autoUpdate() { return this.#autoUpdate; }
+    get isDestroyed() { return this.#isDestroyed; }
+
+    set scene(scene) {
+        if (this.#isDestroyed) return;
+        if (scene instanceof Scene) {
+            this.#scene = scene;
+            this.emit('sceneAttached', { fog: this, scene });
+            Logger.log(`Fog "${this.name}" attached to scene: ${scene.name}`);
+        }
+    }
 
     set type(type) {
+        if (this.#isDestroyed) return;
         this.#type = type;
-        this.__uniforms = this.#generateUniforms();
+        if (this.#autoUpdate) {
+            this.__uniforms = this.#generateUniforms();
+        }
+        this.emit('typeChanged', { fog: this, type });
     }
 
     set color(color) {
+        if (this.#isDestroyed) return;
         this.#color = color instanceof Color ? color : new Color(color);
-        this.__uniforms.fogColor = this.#color.toArray();
+        if (this.#autoUpdate) {
+            this.__uniforms.fogColor = this.#color.toArray();
+        }
+        this.emit('colorChanged', { fog: this, color: this.#color });
     }
 
     set density(density) {
+        if (this.#isDestroyed) return;
         this.#density = density;
-        this.__uniforms.fogDensity = density;
+        if (this.#autoUpdate) {
+            this.__uniforms.fogDensity = density;
+        }
+        this.emit('densityChanged', { fog: this, density });
     }
 
     set near(near) {
+        if (this.#isDestroyed) return;
         this._near = near;
-        this.__uniforms.fogNear = near;
+        if (this.#autoUpdate) {
+            this.__uniforms.fogNear = near;
+        }
+        this.emit('nearChanged', { fog: this, near });
     }
 
     set far(far) {
+        if (this.#isDestroyed) return;
         this._far = far;
-        this.__uniforms.fogFar = far;
+        if (this.#autoUpdate) {
+            this.__uniforms.fogFar = far;
+        }
+        this.emit('farChanged', { fog: this, far });
+    }
+
+    set autoUpdate(value) {
+        if (this.#isDestroyed) return;
+        this.#autoUpdate = value;
+        this.emit('autoUpdateChanged', { fog: this, autoUpdate: value });
     }
 
     enable() {
+        if (this.#isDestroyed) return;
         this.#enabled = true;
         this.active = true;
-        this.__uniforms.fogEnabled = 1;
+        if (this.#autoUpdate) {
+            this.__uniforms.fogEnabled = 1;
+        }
+        this.emit('enabled', { fog: this });
+        this.emit('fogEnabled', { fog: this });
         Logger.log(`Fog enabled: ${this.name}`);
     }
 
     disable() {
+        if (this.#isDestroyed) return;
         this.#enabled = false;
         this.active = false;
-        this.__uniforms.fogEnabled = 0;
+        if (this.#autoUpdate) {
+            this.__uniforms.fogEnabled = 0;
+        }
+        this.emit('disabled', { fog: this });
+        this.emit('fogDisabled', { fog: this });
         Logger.log(`Fog disabled: ${this.name}`);
     }
 
     toggle() {
+        if (this.#isDestroyed) return false;
         this.#enabled ? this.disable() : this.enable();
+        this.emit('toggled', { fog: this, enabled: this.#enabled });
         return this.#enabled;
+    }
+
+    destroy() {
+        if (this.#isDestroyed) return;
+        this.#isDestroyed = true;
+        this.#enabled = false;
+        this.active = false;
+        this.#scene = null;
+        this.emit('destroyed', { fog: this });
+        this.removeAllListeners();
+        Logger.log(`Fog destroyed: ${this.name}`);
+    }
+
+    getCamera() {
+        return this.#scene ? this.#scene._camera : null;
+    }
+
+    getViewport() {
+        return this.#scene ? this.#scene._viewport : { x: 0, y: 0, width: 800, height: 600 };
+    }
+
+    getContext() {
+        return this.#scene ? this.#scene.__webglContext : null;
     }
 
     #generateUniforms() {
@@ -171,16 +213,8 @@ class Fog {
         return types[this.#type] || 0;
     }
 
-    /**
-     * Calculates fog factor for a given distance.
-     * Uses scene camera data if available.
-     * 
-     * @param {number} distance - Distance from camera
-     * @param {Object} position - Object position (optional)
-     * @returns {number} Fog factor (0-1)
-     */
     calculateFactor(distance, position = null) {
-        if (!this.#enabled) return 0;
+        if (!this.#enabled || this.#isDestroyed) return 0;
         
         let factor = 0;
         
@@ -202,14 +236,8 @@ class Fog {
         return Math.max(0, Math.min(1, factor));
     }
 
-    /**
-     * Gets fog shader code with scene data.
-     * 
-     * @returns {string} GLSL shader code
-     */
     getShaderCode() {
         const viewport = this.getViewport();
-        const camera = this.getCamera();
         
         return `
             uniform vec3 fogColor;
@@ -226,11 +254,11 @@ class Fog {
                 
                 float factor = 0.0;
                 
-                if (fogType == 1.0) { // Linear
+                if (fogType == 1.0) {
                     factor = (depth - fogNear) / (fogFar - fogNear);
-                } else if (fogType == 2.0) { // Exponential
+                } else if (fogType == 2.0) {
                     factor = 1.0 - exp(-fogDensity * depth);
-                } else if (fogType == 3.0) { // Exponential2
+                } else if (fogType == 3.0) {
                     float d = fogDensity * depth;
                     factor = 1.0 - exp(-d * d);
                 }
@@ -245,33 +273,21 @@ class Fog {
         `;
     }
 
-    /**
-     * Updates fog uniforms using scene data.
-     * 
-     * @returns {Object} Updated uniform values
-     */
     updateUniforms() {
-        this.__uniforms = this.#generateUniforms();
+        if (this.#isDestroyed) return this.__uniforms;
+        if (this.#autoUpdate) {
+            this.__uniforms = this.#generateUniforms();
+        }
+        this.emit('uniformsUpdated', { fog: this, uniforms: this.__uniforms });
         return this.__uniforms;
     }
 
-    /**
-     * Checks if fog is compatible with scene.
-     * 
-     * @param {Scene} scene - Scene to check
-     * @returns {boolean} True if compatible
-     */
     isCompatibleWith(scene) {
         return scene instanceof Scene && scene.mode === '3D';
     }
 
-    /**
-     * Clones the fog instance.
-     * 
-     * @returns {Fog} Cloned fog
-     */
     clone() {
-        return new Fog({
+        const clone = new Fog({
             type: this.#type,
             color: this.#color.clone(),
             density: this.#density,
@@ -281,12 +297,17 @@ class Fog {
             end: this._end,
             exponent: this._exponent,
             name: `${this.name}_clone`,
-            scene: this.#scene
+            scene: this.#scene,
+            enabled: this.#enabled,
+            autoUpdate: this.#autoUpdate
         });
+        
+        this.emit('cloned', { fog: this, clone });
+        return clone;
     }
 
     toString() {
-        return `Fog(name=${this.name}, type=${this.#type}, enabled=${this.#enabled}, scene=${this.#scene ? this.#scene.name : 'none'})`;
+        return `Fog(name=${this.name}, type=${this.#type}, enabled=${this.#enabled}, autoUpdate=${this.#autoUpdate}, destroyed=${this.#isDestroyed}, scene=${this.#scene ? this.#scene.name : 'none'})`;
     }
 }
 
