@@ -1,0 +1,81 @@
+/**
+ * BoundingBox.js - Bounding box class for LXRN Engine.
+ * Used for intersection tests with Ray.
+ * 
+ * @module BoundingBox
+ * @author LXRN
+ * @version 1.0.0
+ */
+
+import { Vector3 } from '../math/Vector3.js';
+
+class BoundingBox {
+    min = new Vector3(0, 0, 0);
+    max = new Vector3(0, 0, 0);
+
+    constructor(min = null, max = null) {
+        if (min) this.min.copy(min);
+        if (max) this.max.copy(max);
+    }
+
+    set(min, max) {
+        this.min.copy(min);
+        this.max.copy(max);
+        return this;
+    }
+
+    intersectsBox(box) {
+        return !(this.max.x < box.min.x || this.min.x > box.max.x ||
+                 this.max.y < box.min.y || this.min.y > box.max.y ||
+                 this.max.z < box.min.z || this.min.z > box.max.z);
+    }
+
+    containsPoint(point) {
+        return point.x >= this.min.x && point.x <= this.max.x &&
+               point.y >= this.min.y && point.y <= this.max.y &&
+               point.z >= this.min.z && point.z <= this.max.z;
+    }
+
+    intersectRay(ray) {
+        let tmin = 0;
+        let tmax = Infinity;
+        const origin = ray.origin;
+        const direction = ray.direction;
+        
+        for (let i = 0; i < 3; i++) {
+            if (Math.abs(direction.elements[i]) < 0.0001) {
+                if (origin.elements[i] < this.min.elements[i] || 
+                    origin.elements[i] > this.max.elements[i]) {
+                    return null;
+                }
+            } else {
+                const invD = 1 / direction.elements[i];
+                let t1 = (this.min.elements[i] - origin.elements[i]) * invD;
+                let t2 = (this.max.elements[i] - origin.elements[i]) * invD;
+                
+                if (t1 > t2) {
+                    const temp = t1;
+                    t1 = t2;
+                    t2 = temp;
+                }
+                
+                tmin = Math.max(tmin, t1);
+                tmax = Math.min(tmax, t2);
+                
+                if (tmin > tmax) return null;
+            }
+        }
+        
+        return tmin;
+    }
+
+    clone() {
+        return new BoundingBox(this.min.clone(), this.max.clone());
+    }
+
+    toString() {
+        return `BoundingBox(min=${this.min.toString()}, max=${this.max.toString()})`;
+    }
+}
+
+export default BoundingBox;
