@@ -11,9 +11,9 @@
 import { Color } from '../math/Color.js';
 import { Logger } from '../utils/Logger.js';
 import EventEmitter from '../core/EventEmitter.js';
-import Scene from '../core/Scene.js';
+import Scene from './Scene.js';
 
-class Fog extends EventEmitter {  // ← EXTEND EVENTEMITTER!
+class Fog extends EventEmitter {  
     #type = 'none';
     #enabled = true;
     #density = 0.01;
