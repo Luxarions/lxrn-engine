@@ -2,6 +2,7 @@
  * Entity.js - Base entity class for LXRN Engine.
  * Provides game logic, state management, combat system, and behavior tree.
  * Optimized with component caching and lazy loading.
+ * Includes comprehensive flags and boolean state management.
  * 
  * @module Entity
  * @author LXRN
@@ -12,7 +13,6 @@ import Object from '../core/Object.js';
 import { Logger } from '../utils/Logger.js';
 import { generateId, distance, clamp } from '../utils/Helpers.js';
 
-// Lazy import for systems (to avoid circular dependencies)
 let BuffSystem, AggroSystem, DoTSystem, CriticalSystem, ExperienceSystem, SkillSystem;
 
 class Entity extends Object {
@@ -31,6 +31,47 @@ class Entity extends Object {
     #invulnerableTimer = 0;
     #target = null;
     #attackCooldown = 0;
+    #flags = 0;
+    
+    // Position flags
+    #isCentered = false;
+    #isLocked = false;
+    #isFrozen = false;
+    #isPaused = false;
+    
+    // State flags
+    #isSelected = false;
+    #isHovered = false;
+    #isDragging = false;
+    #isColliding = false;
+    #isOnGround = false;
+    #isMoving = false;
+    #isJumping = false;
+    #isFalling = false;
+    #isAttacking = false;
+    #isDefending = false;
+    #isDead = false;
+    
+    // Lifecycle flags
+    #isSpawned = false;
+    #isLoaded = false;
+    #isInitialized = false;
+    #isUpdated = false;
+    #isRendered = false;
+    #isCulled = false;
+    
+    // Render flags
+    #isFrustumCulled = true;
+    #isLayerVisible = true;
+    #isParentVisible = true;
+    #isChildVisible = true;
+    #isCastShadow = false;
+    #isReceiveShadow = false;
+    #isTransparent = false;
+    #isBlending = false;
+    #isDepthWrite = true;
+    #isDepthTest = true;
+    #isStatic = false;
     
     // Lazy-loaded system references
     #buffSystem = null;
@@ -70,6 +111,43 @@ class Entity extends Object {
     team = 'neutral';
     faction = 'neutral';
 
+    static FLAGS = {
+        ACTIVE: 1 << 0,
+        VISIBLE: 1 << 1,
+        STATIC: 1 << 2,
+        DIRTY: 1 << 3,
+        DESTROYED: 1 << 4,
+        LOCKED: 1 << 5,
+        FROZEN: 1 << 6,
+        PAUSED: 1 << 7,
+        SELECTED: 1 << 8,
+        HOVERED: 1 << 9,
+        DRAGGING: 1 << 10,
+        COLLIDING: 1 << 11,
+        ON_GROUND: 1 << 12,
+        MOVING: 1 << 13,
+        JUMPING: 1 << 14,
+        FALLING: 1 << 15,
+        ATTACKING: 1 << 16,
+        DEFENDING: 1 << 17,
+        DEAD: 1 << 18,
+        SPAWNED: 1 << 19,
+        LOADED: 1 << 20,
+        INITIALIZED: 1 << 21,
+        UPDATED: 1 << 22,
+        RENDERED: 1 << 23,
+        CULLED: 1 << 24,
+        FRUSTUM_CULLED: 1 << 25,
+        LAYER_VISIBLE: 1 << 26,
+        PARENT_VISIBLE: 1 << 27,
+        CHILD_VISIBLE: 1 << 28,
+        CAST_SHADOW: 1 << 29,
+        RECEIVE_SHADOW: 1 << 30,
+        TRANSPARENT: 1 << 31,
+        INVULNERABLE: 1 << 32,
+        CENTERED: 1 << 33
+    };
+
     constructor(options = {}) {
         super({
             name: options.name || 'Entity',
@@ -87,7 +165,130 @@ class Entity extends Object {
         this.name = options.name || 'Entity';
         this.type = options.type || 'Entity';
         
-        // Initialize stats
+        if (options.flags !== undefined) {
+            this.#flags = options.flags;
+        }
+        
+        if (options.isCentered !== undefined) {
+            this.#isCentered = options.isCentered;
+            this.#updateFlag(Entity.FLAGS.CENTERED, this.#isCentered);
+        }
+        
+        if (options.isStatic !== undefined) {
+            this.#isStatic = options.isStatic;
+            this.#updateFlag(Entity.FLAGS.STATIC, this.#isStatic);
+        }
+        
+        if (options.isLocked !== undefined) {
+            this.#isLocked = options.isLocked;
+            this.#updateFlag(Entity.FLAGS.LOCKED, this.#isLocked);
+        }
+        
+        if (options.isFrozen !== undefined) {
+            this.#isFrozen = options.isFrozen;
+            this.#updateFlag(Entity.FLAGS.FROZEN, this.#isFrozen);
+        }
+        
+        if (options.isPaused !== undefined) {
+            this.#isPaused = options.isPaused;
+            this.#updateFlag(Entity.FLAGS.PAUSED, this.#isPaused);
+        }
+        
+        if (options.isSelected !== undefined) {
+            this.#isSelected = options.isSelected;
+            this.#updateFlag(Entity.FLAGS.SELECTED, this.#isSelected);
+        }
+        
+        if (options.isHovered !== undefined) {
+            this.#isHovered = options.isHovered;
+            this.#updateFlag(Entity.FLAGS.HOVERED, this.#isHovered);
+        }
+        
+        if (options.isDragging !== undefined) {
+            this.#isDragging = options.isDragging;
+            this.#updateFlag(Entity.FLAGS.DRAGGING, this.#isDragging);
+        }
+        
+        if (options.isColliding !== undefined) {
+            this.#isColliding = options.isColliding;
+            this.#updateFlag(Entity.FLAGS.COLLIDING, this.#isColliding);
+        }
+        
+        if (options.isOnGround !== undefined) {
+            this.#isOnGround = options.isOnGround;
+            this.#updateFlag(Entity.FLAGS.ON_GROUND, this.#isOnGround);
+        }
+        
+        if (options.isMoving !== undefined) {
+            this.#isMoving = options.isMoving;
+            this.#updateFlag(Entity.FLAGS.MOVING, this.#isMoving);
+        }
+        
+        if (options.isJumping !== undefined) {
+            this.#isJumping = options.isJumping;
+            this.#updateFlag(Entity.FLAGS.JUMPING, this.#isJumping);
+        }
+        
+        if (options.isFalling !== undefined) {
+            this.#isFalling = options.isFalling;
+            this.#updateFlag(Entity.FLAGS.FALLING, this.#isFalling);
+        }
+        
+        if (options.isAttacking !== undefined) {
+            this.#isAttacking = options.isAttacking;
+            this.#updateFlag(Entity.FLAGS.ATTACKING, this.#isAttacking);
+        }
+        
+        if (options.isDefending !== undefined) {
+            this.#isDefending = options.isDefending;
+            this.#updateFlag(Entity.FLAGS.DEFENDING, this.#isDefending);
+        }
+        
+        if (options.isDead !== undefined) {
+            this.#isDead = options.isDead;
+            this.#updateFlag(Entity.FLAGS.DEAD, this.#isDead);
+        }
+        
+        if (options.isSpawned !== undefined) {
+            this.#isSpawned = options.isSpawned;
+            this.#updateFlag(Entity.FLAGS.SPAWNED, this.#isSpawned);
+        }
+        
+        if (options.isLoaded !== undefined) {
+            this.#isLoaded = options.isLoaded;
+            this.#updateFlag(Entity.FLAGS.LOADED, this.#isLoaded);
+        }
+        
+        if (options.isInitialized !== undefined) {
+            this.#isInitialized = options.isInitialized;
+            this.#updateFlag(Entity.FLAGS.INITIALIZED, this.#isInitialized);
+        }
+        
+        if (options.isFrustumCulled !== undefined) {
+            this.#isFrustumCulled = options.isFrustumCulled;
+            this.#updateFlag(Entity.FLAGS.FRUSTUM_CULLED, this.#isFrustumCulled);
+        }
+        
+        if (options.isCastShadow !== undefined) {
+            this.#isCastShadow = options.isCastShadow;
+            this.#updateFlag(Entity.FLAGS.CAST_SHADOW, this.#isCastShadow);
+        }
+        
+        if (options.isReceiveShadow !== undefined) {
+            this.#isReceiveShadow = options.isReceiveShadow;
+            this.#updateFlag(Entity.FLAGS.RECEIVE_SHADOW, this.#isReceiveShadow);
+        }
+        
+        if (options.isTransparent !== undefined) {
+            this.#isTransparent = options.isTransparent;
+            this.#updateFlag(Entity.FLAGS.TRANSPARENT, this.#isTransparent);
+        }
+        
+        if (options.isInvulnerable !== undefined) {
+            this.#isInvulnerable = options.isInvulnerable;
+            this.#updateFlag(Entity.FLAGS.INVULNERABLE, this.#isInvulnerable);
+        }
+        
         if (options.hp !== undefined) {
             this._hp = options.hp;
             this._maxHp = options.hp;
@@ -113,38 +314,32 @@ class Entity extends Object {
         if (options.attackSpeed !== undefined) this._attackSpeed = options.attackSpeed;
         if (options.visionRange !== undefined) this._visionRange = options.visionRange;
         
-        // Tags
         if (options.tags) {
             for (const tag of options.tags) {
                 this.#tags.add(tag);
             }
         }
         
-        // State
         if (options.state) this.#state = options.state;
         
-        // Components
         if (options.components) {
             for (const [name, component] of Object.entries(options.components)) {
                 this.addComponent(name, component);
             }
         }
         
-        // Behaviors
         if (options.behaviors) {
             for (const behavior of options.behaviors) {
                 this.addBehavior(behavior);
             }
         }
         
-        // States
         if (options.states) {
             for (const [name, callbacks] of Object.entries(options.states)) {
                 this.addState(name, callbacks);
             }
         }
         
-        // Lazy load systems if requested
         if (options.systems !== false) {
             this.#systemsInitialized = true;
         }
@@ -153,36 +348,25 @@ class Entity extends Object {
         Logger.log(`Entity created: ${this.name} (${this.type})`);
     }
 
-    // ============================================
-    // OPTIMIZED COMPONENT LOOKUP WITH CACHE
-    // ============================================
-
     addComponent(name, component) {
         if (this.#isDestroyed) return this;
-        
         if (this.#components.has(name)) {
             Logger.warn(`Component ${name} already exists, replacing`);
         }
-        
         this.#components.set(name, component);
-        // Clear cache for this component
         this.#componentCache.delete(name);
         component.entity = this;
-        
         if (typeof component.onAdd === 'function') {
             component.onAdd(this);
         }
-        
         this.emit('componentAdded', { entity: this, name, component });
         return this;
     }
 
     getComponent(name) {
-        // Check cache first - OPTIMIZATION!
         if (this.#componentCache.has(name)) {
             return this.#componentCache.get(name);
         }
-        
         const comp = this.#components.get(name);
         if (comp) {
             this.#componentCache.set(name, comp);
@@ -193,11 +377,9 @@ class Entity extends Object {
     removeComponent(name) {
         const component = this.#components.get(name);
         if (!component) return false;
-        
         if (typeof component.onRemove === 'function') {
             component.onRemove(this);
         }
-        
         this.#components.delete(name);
         this.#componentCache.delete(name);
         this.emit('componentRemoved', { entity: this, name });
@@ -219,9 +401,7 @@ class Entity extends Object {
 
     getBuffSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#buffSystem) {
-            // Lazy import to avoid circular dependencies
             if (!BuffSystem) {
                 BuffSystem = require('./systems/BuffSystem.js')?.BuffSystem || 
                             (await import('./systems/BuffSystem.js')).BuffSystem;
@@ -234,7 +414,6 @@ class Entity extends Object {
 
     getAggroSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#aggroSystem) {
             if (!AggroSystem) {
                 AggroSystem = require('./systems/AggroSystem.js')?.default || 
@@ -248,7 +427,6 @@ class Entity extends Object {
 
     getDotSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#dotSystem) {
             if (!DoTSystem) {
                 DoTSystem = require('./systems/DoTSystem.js')?.DoTSystem || 
@@ -262,7 +440,6 @@ class Entity extends Object {
 
     getCriticalSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#criticalSystem) {
             if (!CriticalSystem) {
                 CriticalSystem = require('./systems/CriticalSystem.js')?.default || 
@@ -276,7 +453,6 @@ class Entity extends Object {
 
     getExperienceSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#experienceSystem) {
             if (!ExperienceSystem) {
                 ExperienceSystem = require('./systems/ExperienceSystem.js')?.default || 
@@ -290,7 +466,6 @@ class Entity extends Object {
 
     getSkillSystem() {
         if (this.#isDestroyed) return null;
-        
         if (!this.#skillSystem) {
             if (!SkillSystem) {
                 SkillSystem = require('./systems/SkillSystem.js')?.SkillSystem || 
@@ -325,10 +500,6 @@ class Entity extends Object {
     hasSkillSystem() {
         return this.#skillSystem !== null;
     }
-
-    // ============================================
-    // ASYNC LAZY LOADING
-    // ============================================
 
     async loadBuffSystem() {
         if (this.#buffSystem) return this.#buffSystem;
@@ -384,128 +555,47 @@ class Entity extends Object {
         return this.#skillSystem;
     }
 
-    update(deltaTime) {
-        if (this.#isDestroyed || !this.#active) return;
-        
-        super.update(deltaTime);
-        
-        // Update invulnerability timer
-        if (this.#isInvulnerable) {
-            this.#invulnerableTimer -= deltaTime;
-            if (this.#invulnerableTimer <= 0) {
-                this.#isInvulnerable = false;
-                this.emit('invulnerabilityEnded', { entity: this });
-            }
-        }
-        
-        // Update attack cooldown
-        if (this.#attackCooldown > 0) {
-            this.#attackCooldown -= deltaTime;
-        }
-        
-        // Update state
-        const stateData = this.#states.get(this.#state);
-        if (stateData?.onUpdate) {
-            stateData.onUpdate(this, deltaTime);
-        }
-        
-        // Update components (using cached lookups)
-        for (const [name, component] of this.#components) {
-            if (typeof component.update === 'function') {
-                component.update(deltaTime);
-            }
-        }
-        
-        // Update behaviors
-        for (const behavior of this.#behaviors) {
-            if (typeof behavior.update === 'function') {
-                behavior.update(deltaTime);
-            }
-        }
-        
-        // Update lazy-loaded systems (only if initialized)
-        if (this.#buffSystem) this.#buffSystem.update(deltaTime);
-        if (this.#aggroSystem) this.#aggroSystem.update(deltaTime);
-        if (this.#dotSystem) this.#dotSystem.update(deltaTime);
-        if (this.#skillSystem) this.#skillSystem.update(deltaTime);
-        
-        this.emit('updated', { entity: this, deltaTime });
+    setFlag(flag) {
+        this.#flags |= flag;
+        return this;
     }
 
-    destroy() {
-        if (this.#isDestroyed) return;
-        
-        this.#isDestroyed = true;
-        this.#active = false;
-        this.visible = false;
-        
-        // Destroy components
-        for (const [name, component] of this.#components) {
-            if (typeof component.destroy === 'function') {
-                component.destroy();
-            }
-        }
-        this.#components.clear();
-        this.#componentCache.clear();
-        
-        // Destroy behaviors
-        for (const behavior of this.#behaviors) {
-            if (typeof behavior.destroy === 'function') {
-                behavior.destroy();
-            }
-        }
-        this.#behaviors = [];
-        
-        // Destroy lazy-loaded systems
-        if (this.#buffSystem) {
-            this.#buffSystem.destroy();
-            this.#buffSystem = null;
-        }
-        if (this.#aggroSystem) {
-            this.#aggroSystem.destroy();
-            this.#aggroSystem = null;
-        }
-        if (this.#dotSystem) {
-            this.#dotSystem.destroy();
-            this.#dotSystem = null;
-        }
-        if (this.#criticalSystem) {
-            this.#criticalSystem.destroy();
-            this.#criticalSystem = null;
-        }
-        if (this.#experienceSystem) {
-            this.#experienceSystem.destroy();
-            this.#experienceSystem = null;
-        }
-        if (this.#skillSystem) {
-            this.#skillSystem.destroy();
-            this.#skillSystem = null;
-        }
-        
-        // Remove from parent
-        if (this.#parentEntity) {
-            this.#parentEntity.removeChildEntity(this);
-        }
-        
-        // Destroy children
-        for (const child of this.#childrenEntities) {
-            child.destroy();
-        }
-        this.#childrenEntities = [];
-        
-        super.destroy();
-        this.emit('destroyed', { entity: this });
-        Logger.log(`Entity destroyed: ${this.name}`);
+    clearFlag(flag) {
+        this.#flags &= ~flag;
+        return this;
     }
 
-    // ============================================
-    // EXISTING METHODS (keep all previous)
-    // ============================================
+    toggleFlag(flag) {
+        this.#flags ^= flag;
+        return this;
+    }
+
+    hasFlag(flag) {
+        return (this.#flags & flag) !== 0;
+    }
+
+    getFlags() {
+        return this.#flags;
+    }
+
+    setFlags(flags) {
+        this.#flags = flags;
+        return this;
+    }
+
+    #updateFlag(flag, value) {
+        if (value) {
+            this.#flags |= flag;
+        } else {
+            this.#flags &= ~flag;
+        }
+    }
 
     enable() {
         if (this.#isDestroyed) return this;
         super.enable();
         this.#active = true;
+        this.#updateFlag(Entity.FLAGS.ACTIVE, true);
         this.emit('enabled', { entity: this });
         return this;
     }
@@ -514,6 +604,7 @@ class Entity extends Object {
         if (this.#isDestroyed) return this;
         super.disable();
         this.#active = false;
+        this.#updateFlag(Entity.FLAGS.ACTIVE, false);
         this.emit('disabled', { entity: this });
         return this;
     }
@@ -535,14 +626,10 @@ class Entity extends Object {
 
     attack(target) {
         if (!this.canAttack(target)) return 0;
-        
         if (this.#attackCooldown > 0) return 0;
         this.#attackCooldown = 1 / this._attackSpeed;
-        
-        // Check critical hit if system exists
         let damage = this._damage;
         let isCrit = false;
-        
         if (this.#criticalSystem) {
             const result = this.#criticalSystem.calculateCrit(damage, target);
             damage = result.damage;
@@ -551,12 +638,9 @@ class Entity extends Object {
             const variance = 1 + (Math.random() - 0.5) * 0.4;
             damage = Math.max(0, damage * variance - target._defense * 0.5);
         }
-        
         const finalDamage = Math.floor(damage);
-        
         this.emit('attack', { entity: this, target, damage: finalDamage, isCrit });
         Logger.log(`${this.name} attacked ${target.name} for ${finalDamage} damage${isCrit ? ' (CRIT!)' : ''}`);
-        
         return target.takeDamage(finalDamage, this);
     }
 
@@ -624,12 +708,10 @@ class Entity extends Object {
 
     moveToward(target, speed = null) {
         if (!target || !target.position) return;
-        
         const moveSpeed = speed !== null ? speed : this._speed;
         const dx = target.position.x - this.position.x;
         const dy = target.position.y - this.position.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        
         if (dist > 1) {
             this.position.x += (dx / dist) * moveSpeed;
             this.position.y += (dy / dist) * moveSpeed;
@@ -639,12 +721,10 @@ class Entity extends Object {
 
     moveAwayFrom(target, speed = null) {
         if (!target || !target.position) return;
-        
         const moveSpeed = speed !== null ? speed : this._speed;
         const dx = this.position.x - target.position.x;
         const dy = this.position.y - target.position.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        
         if (dist > 1) {
             this.position.x += (dx / dist) * moveSpeed;
             this.position.y += (dy / dist) * moveSpeed;
@@ -682,21 +762,16 @@ class Entity extends Object {
             Logger.warn(`State ${newState} not found for ${this.name}`);
             return;
         }
-        
         const oldState = this.#state;
         const oldStateData = this.#states.get(oldState);
         const newStateData = this.#states.get(newState);
-        
         if (oldStateData?.onExit) {
             oldStateData.onExit(this);
         }
-        
         this.#state = newState;
-        
         if (newStateData?.onEnter) {
             newStateData.onEnter(this);
         }
-        
         this.emit('stateChanged', { entity: this, oldState, newState });
         Logger.log(`${this.name} changed state: ${oldState} -> ${newState}`);
     }
@@ -711,6 +786,7 @@ class Entity extends Object {
 
     setInvulnerable(duration) {
         this.#isInvulnerable = true;
+        this.#updateFlag(Entity.FLAGS.INVULNERABLE, true);
         this.#invulnerableTimer = duration;
         this.emit('invulnerable', { entity: this, duration });
     }
@@ -725,57 +801,51 @@ class Entity extends Object {
             this.emit('damageBlocked', { entity: this, source });
             return 0;
         }
-        
         const actualDamage = Math.max(0, amount);
         const oldHp = this._hp;
         this._hp = Math.max(0, this._hp - actualDamage);
         const dealtDamage = oldHp - this._hp;
-        
         this.emit('damageTaken', { entity: this, damage: dealtDamage, source });
         Logger.log(`${this.name} took ${dealtDamage} damage (HP: ${this._hp}/${this._maxHp})`);
-        
         if (this._hp <= 0) {
             this.die();
         }
-        
         return dealtDamage;
     }
 
     heal(amount) {
         if (this.#isDestroyed || !this.#active) return 0;
         if (this._hp <= 0) return 0;
-        
         const actualHeal = Math.max(0, Math.min(amount, this._maxHp - this._hp));
         this._hp += actualHeal;
-        
         this.emit('healed', { entity: this, heal: actualHeal });
         Logger.log(`${this.name} healed ${actualHeal} (HP: ${this._hp}/${this._maxHp})`);
-        
         return actualHeal;
     }
 
     die() {
         if (this.#isDestroyed) return;
-        
         this.#active = false;
         this.#state = 'dead';
         this.visible = false;
-        
+        this.#updateFlag(Entity.FLAGS.ACTIVE, false);
+        this.#updateFlag(Entity.FLAGS.VISIBLE, false);
+        this.#updateFlag(Entity.FLAGS.DEAD, true);
         this.emit('died', { entity: this });
         Logger.log(`${this.name} died`);
-        
         this.onDeath();
     }
 
     revive(hp = null) {
         if (!this.#isDestroyed && this.#active) return;
-        
         this.#isDestroyed = false;
         this.#active = true;
         this.visible = true;
         this._hp = hp !== null ? hp : this._maxHp;
         this.#state = 'idle';
-        
+        this.#updateFlag(Entity.FLAGS.ACTIVE, true);
+        this.#updateFlag(Entity.FLAGS.VISIBLE, true);
+        this.#updateFlag(Entity.FLAGS.DEAD, false);
         this.emit('revived', { entity: this });
         Logger.log(`${this.name} revived`);
     }
@@ -804,14 +874,11 @@ class Entity extends Object {
 
     addBehavior(behavior) {
         if (this.#isDestroyed) return this;
-        
         this.#behaviors.push(behavior);
         behavior.entity = this;
-        
         if (typeof behavior.onAdd === 'function') {
             behavior.onAdd(this);
         }
-        
         this.emit('behaviorAdded', { entity: this, behavior });
         return this;
     }
@@ -819,11 +886,9 @@ class Entity extends Object {
     removeBehavior(behavior) {
         const index = this.#behaviors.indexOf(behavior);
         if (index === -1) return false;
-        
         if (typeof behavior.onRemove === 'function') {
             behavior.onRemove(this);
         }
-        
         this.#behaviors.splice(index, 1);
         this.emit('behaviorRemoved', { entity: this, behavior });
         return true;
@@ -831,7 +896,6 @@ class Entity extends Object {
 
     addChildEntity(child) {
         if (this.#isDestroyed) return this;
-        
         if (child instanceof Entity) {
             if (child.#parentEntity) {
                 child.#parentEntity.removeChildEntity(child);
@@ -847,7 +911,6 @@ class Entity extends Object {
     removeChildEntity(child) {
         const index = this.#childrenEntities.indexOf(child);
         if (index === -1) return false;
-        
         this.#childrenEntities.splice(index, 1);
         child.#parentEntity = null;
         this.emit('childEntityRemoved', { parent: this, child });
@@ -876,16 +939,12 @@ class Entity extends Object {
 
     addExperience(amount) {
         if (this.#isDestroyed || !this.#active) return;
-        
         if (this.#experienceSystem) {
             this.#experienceSystem.addExperience(amount);
             return;
         }
-        
-        // Fallback: manual experience
         this._experience += amount;
         this.emit('experienceGained', { entity: this, amount });
-        
         while (this._experience >= this._nextLevelExp) {
             this.levelUp();
         }
@@ -899,10 +958,8 @@ class Entity extends Object {
         this._hp = this._maxHp;
         this._damage += 2;
         this._defense += 1;
-        
         this.emit('levelUp', { entity: this, level: this._level });
         Logger.log(`${this.name} leveled up to ${this._level}!`);
-        
         this.onLevelUp();
     }
 
@@ -931,17 +988,72 @@ class Entity extends Object {
         };
     }
 
+    centerOnScreen(viewport = null, camera = null) {
+        if (this.#isDestroyed) return this;
+        if (viewport) {
+            this.position.x = viewport.width / 2;
+            this.position.y = viewport.height / 2;
+        } else if (this.is3D) {
+            this.position.x = 0;
+            this.position.y = 0;
+            this.position.z = 0;
+        } else {
+            this.position.x = 0;
+            this.position.y = 0;
+        }
+        this.#isCentered = true;
+        this.#updateFlag(Entity.FLAGS.CENTERED, true);
+        this.emit('centered', { entity: this });
+        return this;
+    }
+
+    isCentered() {
+        return this.#isCentered;
+    }
+
+    update(deltaTime) {
+        if (this.#isDestroyed || !this.#active) return;
+        super.update(deltaTime);
+        if (this.#isInvulnerable) {
+            this.#invulnerableTimer -= deltaTime;
+            if (this.#invulnerableTimer <= 0) {
+                this.#isInvulnerable = false;
+                this.#updateFlag(Entity.FLAGS.INVULNERABLE, false);
+                this.emit('invulnerabilityEnded', { entity: this });
+            }
+        }
+        if (this.#attackCooldown > 0) {
+            this.#attackCooldown -= deltaTime;
+        }
+        const stateData = this.#states.get(this.#state);
+        if (stateData?.onUpdate) {
+            stateData.onUpdate(this, deltaTime);
+        }
+        for (const [name, component] of this.#components) {
+            if (typeof component.update === 'function') {
+                component.update(deltaTime);
+            }
+        }
+        for (const behavior of this.#behaviors) {
+            if (typeof behavior.update === 'function') {
+                behavior.update(deltaTime);
+            }
+        }
+        if (this.#buffSystem) this.#buffSystem.update(deltaTime);
+        if (this.#aggroSystem) this.#aggroSystem.update(deltaTime);
+        if (this.#dotSystem) this.#dotSystem.update(deltaTime);
+        if (this.#skillSystem) this.#skillSystem.update(deltaTime);
+        this.emit('updated', { entity: this, deltaTime });
+    }
+
     render(ctx) {
         if (this.#isDestroyed || !this.#active || !this.visible) return;
-        
         super.render(ctx);
-        
         for (const [name, component] of this.#components) {
             if (typeof component.render === 'function') {
                 component.render(ctx);
             }
         }
-        
         this.emit('rendered', { entity: this, ctx });
     }
 
@@ -951,6 +1063,63 @@ class Entity extends Object {
 
     onLevelUp() {
         // Override in child class
+    }
+
+    destroy() {
+        if (this.#isDestroyed) return;
+        this.#isDestroyed = true;
+        this.#active = false;
+        this.visible = false;
+        this.#updateFlag(Entity.FLAGS.DESTROYED, true);
+        this.#updateFlag(Entity.FLAGS.ACTIVE, false);
+        this.#updateFlag(Entity.FLAGS.VISIBLE, false);
+        for (const [name, component] of this.#components) {
+            if (typeof component.destroy === 'function') {
+                component.destroy();
+            }
+        }
+        this.#components.clear();
+        this.#componentCache.clear();
+        for (const behavior of this.#behaviors) {
+            if (typeof behavior.destroy === 'function') {
+                behavior.destroy();
+            }
+        }
+        this.#behaviors = [];
+        if (this.#buffSystem) {
+            this.#buffSystem.destroy();
+            this.#buffSystem = null;
+        }
+        if (this.#aggroSystem) {
+            this.#aggroSystem.destroy();
+            this.#aggroSystem = null;
+        }
+        if (this.#dotSystem) {
+            this.#dotSystem.destroy();
+            this.#dotSystem = null;
+        }
+        if (this.#criticalSystem) {
+            this.#criticalSystem.destroy();
+            this.#criticalSystem = null;
+        }
+        if (this.#experienceSystem) {
+            this.#experienceSystem.destroy();
+            this.#experienceSystem = null;
+        }
+        if (this.#skillSystem) {
+            this.#skillSystem.destroy();
+            this.#skillSystem = null;
+        }
+        if (this.#parentEntity) {
+            this.#parentEntity.removeChildEntity(this);
+        }
+        for (const child of this.#childrenEntities) {
+            child.destroy();
+        }
+        this.#childrenEntities = [];
+        super.destroy();
+        this.emit('destroyed', { entity: this });
+        Logger.log(`Entity destroyed: ${this.name}`);
     }
 
     clone(recursive = false) {
@@ -981,15 +1150,38 @@ class Entity extends Object {
             visible: this.visible,
             active: this.#active,
             layer: this.getLayerMask(),
-            systems: false // Don't clone systems
+            isCentered: this.#isCentered,
+            isStatic: this.#isStatic,
+            isLocked: this.#isLocked,
+            isFrozen: this.#isFrozen,
+            isPaused: this.#isPaused,
+            isSelected: this.#isSelected,
+            isHovered: this.#isHovered,
+            isDragging: this.#isDragging,
+            isColliding: this.#isColliding,
+            isOnGround: this.#isOnGround,
+            isMoving: this.#isMoving,
+            isJumping: this.#isJumping,
+            isFalling: this.#isFalling,
+            isAttacking: this.#isAttacking,
+            isDefending: this.#isDefending,
+            isDead: this.#isDead,
+            isSpawned: this.#isSpawned,
+            isLoaded: this.#isLoaded,
+            isInitialized: this.#isInitialized,
+            isFrustumCulled: this.#isFrustumCulled,
+            isCastShadow: this.#isCastShadow,
+            isReceiveShadow: this.#isReceiveShadow,
+            isTransparent: this.#isTransparent,
+            isInvulnerable: this.#isInvulnerable,
+            flags: this.#flags,
+            systems: false
         });
-        
         if (recursive) {
             for (const child of this.#childrenEntities) {
                 clone.addChildEntity(child.clone(true));
             }
         }
-        
         this.emit('cloned', { entity: this, clone });
         return clone;
     }
@@ -1005,6 +1197,39 @@ class Entity extends Object {
     get childrenEntities() { return this.#childrenEntities; }
     get target() { return this.#target; }
     get attackCooldown() { return this.#attackCooldown; }
+    get isCentered() { return this.#isCentered; }
+    get isStatic() { return this.#isStatic; }
+    get isLocked() { return this.#isLocked; }
+    get isFrozen() { return this.#isFrozen; }
+    get isPaused() { return this.#isPaused; }
+    get isSelected() { return this.#isSelected; }
+    get isHovered() { return this.#isHovered; }
+    get isDragging() { return this.#isDragging; }
+    get isColliding() { return this.#isColliding; }
+    get isOnGround() { return this.#isOnGround; }
+    get isMoving() { return this.#isMoving; }
+    get isJumping() { return this.#isJumping; }
+    get isFalling() { return this.#isFalling; }
+    get isAttacking() { return this.#isAttacking; }
+    get isDefending() { return this.#isDefending; }
+    get isDead() { return this.#isDead; }
+    get isSpawned() { return this.#isSpawned; }
+    get isLoaded() { return this.#isLoaded; }
+    get isInitialized() { return this.#isInitialized; }
+    get isUpdated() { return this.#isUpdated; }
+    get isRendered() { return this.#isRendered; }
+    get isCulled() { return this.#isCulled; }
+    get isFrustumCulled() { return this.#isFrustumCulled; }
+    get isLayerVisible() { return this.#isLayerVisible; }
+    get isParentVisible() { return this.#isParentVisible; }
+    get isChildVisible() { return this.#isChildVisible; }
+    get isCastShadow() { return this.#isCastShadow; }
+    get isReceiveShadow() { return this.#isReceiveShadow; }
+    get isTransparent() { return this.#isTransparent; }
+    get isBlending() { return this.#isBlending; }
+    get isDepthWrite() { return this.#isDepthWrite; }
+    get isDepthTest() { return this.#isDepthTest; }
+    get isInvulnerable() { return this.#isInvulnerable; }
     
     get hp() { return this._hp; }
     get maxHp() { return this._maxHp; }
@@ -1064,8 +1289,131 @@ class Entity extends Object {
         this.emit('visionRangeChanged', { entity: this, visionRange: value });
     }
 
+    set isCentered(value) {
+        this.#isCentered = value;
+        this.#updateFlag(Entity.FLAGS.CENTERED, value);
+        if (value) {
+            this.centerOnScreen();
+        }
+    }
+
+    set isStatic(value) {
+        this.#isStatic = value;
+        this.#updateFlag(Entity.FLAGS.STATIC, value);
+    }
+
+    set isLocked(value) {
+        this.#isLocked = value;
+        this.#updateFlag(Entity.FLAGS.LOCKED, value);
+    }
+
+    set isFrozen(value) {
+        this.#isFrozen = value;
+        this.#updateFlag(Entity.FLAGS.FROZEN, value);
+    }
+
+    set isPaused(value) {
+        this.#isPaused = value;
+        this.#updateFlag(Entity.FLAGS.PAUSED, value);
+    }
+
+    set isSelected(value) {
+        this.#isSelected = value;
+        this.#updateFlag(Entity.FLAGS.SELECTED, value);
+    }
+
+    set isHovered(value) {
+        this.#isHovered = value;
+        this.#updateFlag(Entity.FLAGS.HOVERED, value);
+    }
+
+    set isDragging(value) {
+        this.#isDragging = value;
+        this.#updateFlag(Entity.FLAGS.DRAGGING, value);
+    }
+
+    set isColliding(value) {
+        this.#isColliding = value;
+        this.#updateFlag(Entity.FLAGS.COLLIDING, value);
+    }
+
+    set isOnGround(value) {
+        this.#isOnGround = value;
+        this.#updateFlag(Entity.FLAGS.ON_GROUND, value);
+    }
+
+    set isMoving(value) {
+        this.#isMoving = value;
+        this.#updateFlag(Entity.FLAGS.MOVING, value);
+    }
+
+    set isJumping(value) {
+        this.#isJumping = value;
+        this.#updateFlag(Entity.FLAGS.JUMPING, value);
+    }
+
+    set isFalling(value) {
+        this.#isFalling = value;
+        this.#updateFlag(Entity.FLAGS.FALLING, value);
+    }
+
+    set isAttacking(value) {
+        this.#isAttacking = value;
+        this.#updateFlag(Entity.FLAGS.ATTACKING, value);
+    }
+
+    set isDefending(value) {
+        this.#isDefending = value;
+        this.#updateFlag(Entity.FLAGS.DEFENDING, value);
+    }
+
+    set isDead(value) {
+        this.#isDead = value;
+        this.#updateFlag(Entity.FLAGS.DEAD, value);
+    }
+
+    set isSpawned(value) {
+        this.#isSpawned = value;
+        this.#updateFlag(Entity.FLAGS.SPAWNED, value);
+    }
+
+    set isLoaded(value) {
+        this.#isLoaded = value;
+        this.#updateFlag(Entity.FLAGS.LOADED, value);
+    }
+
+    set isInitialized(value) {
+        this.#isInitialized = value;
+        this.#updateFlag(Entity.FLAGS.INITIALIZED, value);
+    }
+
+    set isFrustumCulled(value) {
+        this.#isFrustumCulled = value;
+        this.#updateFlag(Entity.FLAGS.FRUSTUM_CULLED, value);
+    }
+
+    set isCastShadow(value) {
+        this.#isCastShadow = value;
+        this.#updateFlag(Entity.FLAGS.CAST_SHADOW, value);
+    }
+
+    set isReceiveShadow(value) {
+        this.#isReceiveShadow = value;
+        this.#updateFlag(Entity.FLAGS.RECEIVE_SHADOW, value);
+    }
+
+    set isTransparent(value) {
+        this.#isTransparent = value;
+        this.#updateFlag(Entity.FLAGS.TRANSPARENT, value);
+    }
+
+    set isInvulnerable(value) {
+        this.#isInvulnerable = value;
+        this.#updateFlag(Entity.FLAGS.INVULNERABLE, value);
+    }
+
     toString() {
-        return `Entity(name=${this.name}, type=${this.type}, active=${this.#active}, hp=${this._hp}/${this._maxHp}, level=${this._level}, state=${this.#state}, team=${this.team}, children=${this.#childrenEntities.length})`;
+        return `Entity(name=${this.name}, type=${this.type}, active=${this.#active}, hp=${this._hp}/${this._maxHp}, level=${this._level}, state=${this.#state}, team=${this.team}, centered=${this.#isCentered}, flags=${this.#flags}, children=${this.#childrenEntities.length})`;
     }
 }
 
