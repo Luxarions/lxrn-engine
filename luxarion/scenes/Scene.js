@@ -2,10 +2,11 @@
  * Scene.js - Core scene management system for LXRN Engine.
  * Extends Object for hierarchy, layer management, and event system.
  * Supports both 2D and 3D rendering modes with fog integration.
+ * Provides camera management, viewport control, and render pipeline.
  * 
  * @module Scene
  * @author LXRN
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import Object from './Object.js';
@@ -27,6 +28,10 @@ class Scene extends Object {
         onPause: null,
         onResume: null,
         onReset: null,
+        onBeforeRender: null,
+        onAfterRender: null,
+        onBeforeUpdate: null,
+        onAfterUpdate: null,
     };
     #isPaused = false;
     #isGameOver = false;
@@ -37,27 +42,43 @@ class Scene extends Object {
     #loadQueue = [];
     #loadedCount = 0;
     #totalLoadCount = 0;
+    #camera = null;
+    #renderer = null;
+    #viewport = { x: 0, y: 0, width: 800, height: 600 };
+    #layers = 1;
+    #background = '#000000';
+    #clearColor = '#000000';
+    #clearDepth = 1;
+    #cullingEnabled = true;
+    #postProcessing = null;
+    #renderQueue = [];
+    #sortedEntities = [];
+    #isRendering = false;
+    #frameCount = 0;
+    #fps = 0;
+    #fpsTimer = 0;
     
     __renderCache = null;
     __eventBuffer = [];
     __frameData = {};
+    __renderStats = {
+        drawCalls: 0,
+        triangles: 0,
+        vertices: 0,
+    };
     
     _background = null;
     _backgroundBlurriness = 0;
     _backgroundIntensity = 1;
     _backgroundRotation = new Euler();
-    
     _environment = null;
     _environmentIntensity = 1;
     _environmentRotation = new Euler();
-    
     _fog = null;
     _overrideMaterial = null;
-    
-    _camera = null;
-    _viewport = { x: 0, y: 0, width: 800, height: 600 };
     _gravity = SCENE_CONFIG.physics.gravity;
     _physics = null;
+    _cullingFrustum = null;
     
     name = 'UnnamedScene';
     active = true;
@@ -68,6 +89,9 @@ class Scene extends Object {
     autoClear = true;
     autoSort = false;
     autoLoad = false;
+    autoRender = true;
+    autoUpdate = true;
+    cullingEnabled = true;
 
     constructor(options = {}) {
         super({ 
@@ -78,9 +102,20 @@ class Scene extends Object {
         });
         
         this.mode = options.mode || '2D';
+        this.#background = options.background || '#000000';
+        this.#clearColor = options.clearColor || '#000000';
         
-        this._background = options.background || null;
-        this._camera = options.camera || null;
+        if (options.camera) {
+            this.#camera = options.camera;
+        }
+        
+        if (options.viewport) {
+            this.#viewport = { ...this.#viewport, ...options.viewport };
+        }
+        
+        if (options.layers !== undefined) {
+            this.#layers = options.layers;
+        }
         
         if (options.autoClear !== undefined) {
             this.autoClear = options.autoClear;
@@ -94,18 +129,96 @@ class Scene extends Object {
             this.autoLoad = options.autoLoad;
         }
         
+        if (options.autoRender !== undefined) {
+            this.autoRender = options.autoRender;
+        }
+        
+        if (options.autoUpdate !== undefined) {
+            this.autoUpdate = options.autoUpdate;
+        }
+        
+        if (options.cullingEnabled !== undefined) {
+            this.cullingEnabled = options.cullingEnabled;
+        }
+        
         if (options.fog) {
             this.fog = options.fog;
         }
         
         this.emit('sceneCreated', { scene: this, mode: this.mode });
-        
-        if (options.viewport) {
-            this._viewport = { ...this._viewport, ...options.viewport };
-        }
-        
         Logger.log(`Scene "${this.name}" created in ${this.mode} mode`);
         this.#initializeScene(options);
+    }
+
+    get camera() { return this.#camera; }
+    get renderer() { return this.#renderer; }
+    get viewport() { return this.#viewport; }
+    get layers() { return this.#layers; }
+    get background() { return this.#background; }
+    get clearColor() { return this.#clearColor; }
+    get clearDepth() { return this.#clearDepth; }
+    get cullingEnabled() { return this.#cullingEnabled; }
+    get postProcessing() { return this.#postProcessing; }
+    get renderQueue() { return this.#renderQueue; }
+    get frameCount() { return this.#frameCount; }
+    get fps() { return this.#fps; }
+    get renderStats() { return this.__renderStats; }
+    get isRendering() { return this.#isRendering; }
+
+    set camera(value) {
+        this.#camera = value;
+        this.emit('cameraChanged', { scene: this, camera: value });
+    }
+
+    set renderer(value) {
+        this.#renderer = value;
+        this.emit('rendererChanged', { scene: this, renderer: value });
+    }
+
+    set viewport(value) {
+        this.#viewport = { ...this.#viewport, ...value };
+        this.emit('viewportChanged', { scene: this, viewport: this.#viewport });
+    }
+
+    set layers(value) {
+        this.#layers = value;
+        this.emit('layersChanged', { scene: this, layers: value });
+    }
+
+    set background(value) {
+        this.#background = value;
+        this.emit('backgroundChanged', { scene: this, background: value });
+    }
+
+    set clearColor(value) {
+        this.#clearColor = value;
+        this.emit('clearColorChanged', { scene: this, clearColor: value });
+    }
+
+    set clearDepth(value) {
+        this.#clearDepth = clamp(value, 0, 1);
+        this.emit('clearDepthChanged', { scene: this, clearDepth: value });
+    }
+
+    set postProcessing(value) {
+        this.#postProcessing = value;
+        this.emit('postProcessingChanged', { scene: this, postProcessing: value });
+    }
+
+    addLayer(layer) {
+        this.#layers |= (1 << layer);
+        this.emit('layerAdded', { scene: this, layer });
+        return this;
+    }
+
+    removeLayer(layer) {
+        this.#layers &= ~(1 << layer);
+        this.emit('layerRemoved', { scene: this, layer });
+        return this;
+    }
+
+    isOnLayer(layer) {
+        return (this.#layers & (1 << layer)) !== 0;
     }
 
     enable() {
@@ -316,6 +429,7 @@ class Scene extends Object {
         }
 
         this.#entities.set(id, entity);
+        this.#renderQueue.push(entity);
         
         if (entity instanceof Object) {
             this.add(entity);
@@ -352,6 +466,10 @@ class Scene extends Object {
         }
 
         const deleted = this.#entities.delete(id);
+        const queueIndex = this.#renderQueue.indexOf(entity);
+        if (queueIndex !== -1) {
+            this.#renderQueue.splice(queueIndex, 1);
+        }
         
         if (deleted) {
             this.#logEntityAction('remove', id);
@@ -389,6 +507,7 @@ class Scene extends Object {
             }
         }
         this.#entities.clear();
+        this.#renderQueue = [];
         Logger.log('All entities cleared');
         this.emit('entitiesCleared', { scene: this });
     }
@@ -426,6 +545,21 @@ class Scene extends Object {
         const result = [];
         for (const [id, entity] of this.#entities) {
             if (entity.type === type) {
+                result.push(entity);
+            }
+        }
+        return result;
+    }
+
+    getVisibleEntities() {
+        if (this.isDestroyed) return [];
+        if (!this.cullingEnabled || !this.#camera) {
+            return this.getEntities();
+        }
+        
+        const result = [];
+        for (const [id, entity] of this.#entities) {
+            if (this.#camera.isObjectVisible(entity)) {
                 result.push(entity);
             }
         }
@@ -480,12 +614,20 @@ class Scene extends Object {
 
     update(deltaTime) {
         if (this.isDestroyed) return;
+        if (!this.autoUpdate) return;
         
         const dt = clamp(deltaTime, 0.001, 0.1);
         
         if (!this.active || this.#isPaused) return;
 
         this.#time += dt;
+        this.#frameCount++;
+        
+        this.#updateFPS(dt);
+
+        if (this.#hooks.onBeforeUpdate) {
+            this.#hooks.onBeforeUpdate(this, dt);
+        }
 
         if (this.#hooks.onUpdate) {
             this.#hooks.onUpdate(this, dt);
@@ -514,12 +656,32 @@ class Scene extends Object {
         this._updateCamera();
         this.#checkGameOver();
         
+        if (this.#hooks.onAfterUpdate) {
+            this.#hooks.onAfterUpdate(this, dt);
+        }
+        
         this.emit('sceneUpdated', { scene: this, deltaTime: dt });
+    }
+
+    #updateFPS(dt) {
+        this.#fpsTimer += dt;
+        if (this.#fpsTimer >= 0.5) {
+            this.#fps = Math.round(this.#frameCount / this.#fpsTimer);
+            this.#fpsTimer = 0;
+            this.#frameCount = 0;
+        }
     }
 
     render(ctx) {
         if (this.isDestroyed) return;
         if (!this.active) return;
+        if (!this.autoRender) return;
+        
+        this.#isRendering = true;
+        
+        if (this.#hooks.onBeforeRender) {
+            this.#hooks.onBeforeRender(this, ctx);
+        }
 
         if (this.autoClear) {
             this.#clearContext(ctx);
@@ -531,64 +693,112 @@ class Scene extends Object {
             this.#render2D(ctx);
         }
 
+        if (this.#hooks.onAfterRender) {
+            this.#hooks.onAfterRender(this, ctx);
+        }
+
         if (this.#debugMode) {
             this.#renderDebugInfo(ctx);
         }
         
+        this.#isRendering = false;
         this.emit('sceneRendered', { scene: this, ctx });
     }
 
     #clearContext(ctx) {
         if (this.is2D) {
             ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            if (this.#background) {
+                ctx.fillStyle = this.#background;
+                ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            }
         } else {
+            if (this.#background) {
+                const bg = this.#background;
+                ctx.clearColor(
+                    bg.r !== undefined ? bg.r : 0,
+                    bg.g !== undefined ? bg.g : 0,
+                    bg.b !== undefined ? bg.b : 0,
+                    1
+                );
+            }
             ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT);
         }
     }
 
     #render2D(ctx) {
-        if (this._background) {
-            ctx.fillStyle = this._background;
-            ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        let entities = this.getEntities();
+        
+        if (this.cullingEnabled && this.#camera) {
+            entities = this.getVisibleEntities();
+        }
+        
+        if (this.autoSort) {
+            entities = this.#sortEntitiesList(entities);
         }
 
-        for (const [id, entity] of this.#entities) {
+        if (this.#camera && this.#camera.viewport) {
+            const vp = this.#camera.viewport;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(vp.x, vp.y, vp.width, vp.height);
+            ctx.clip();
+        }
+
+        for (const entity of entities) {
+            if (entity instanceof Object && !entity.visible) continue;
             if (typeof entity.render === 'function') {
                 entity.render(ctx);
+                this.__renderStats.drawCalls++;
             }
         }
 
         if (this.#hooks.onRender) {
             this.#hooks.onRender(this, ctx);
         }
+
+        if (this.#camera && this.#camera.viewport) {
+            ctx.restore();
+        }
     }
 
     #render3D(gl) {
-        if (this._background) {
-            gl.clearColor(
-                this._background.r || 0,
-                this._background.g || 0,
-                this._background.b || 0,
-                1
-            );
-            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        let entities = this.getEntities();
+        
+        if (this.cullingEnabled && this.#camera) {
+            entities = this.getVisibleEntities();
+        }
+
+        if (this.#camera) {
+            this.#camera.update();
         }
 
         for (const child of this.children) {
             if (typeof child.render3D === 'function') {
-                child.render3D(gl, this._camera);
+                child.render3D(gl, this.#camera);
+                this.__renderStats.drawCalls++;
             }
         }
 
-        for (const [id, entity] of this.#entities) {
+        for (const entity of entities) {
+            if (entity instanceof Object && !entity.visible) continue;
             if (typeof entity.render3D === 'function') {
-                entity.render3D(gl, this._camera);
+                entity.render3D(gl, this.#camera);
+                this.__renderStats.drawCalls++;
             }
         }
 
         if (this.#hooks.onRender3D) {
             this.#hooks.onRender3D(this, gl);
         }
+    }
+
+    #sortEntitiesList(entities) {
+        return [...entities].sort((a, b) => {
+            const orderA = a.renderOrder !== undefined ? a.renderOrder : 0;
+            const orderB = b.renderOrder !== undefined ? b.renderOrder : 0;
+            return orderA - orderB;
+        });
     }
 
     #sortEntities() {
@@ -627,6 +837,7 @@ class Scene extends Object {
     get is2D() { return this.mode === '2D'; }
     get isLoading() { return this.#isLoading; }
     get loadProgress() { return this.getLoadProgress(); }
+    get renderStats() { return this.__renderStats; }
 
     _applyPhysics(deltaTime) {
         if (this.isDestroyed) return;
@@ -637,8 +848,8 @@ class Scene extends Object {
 
     _updateCamera() {
         if (this.isDestroyed) return;
-        if (this._camera && typeof this._camera.update === 'function') {
-            this._camera.update();
+        if (this.#camera && typeof this.#camera.update === 'function') {
+            this.#camera.update();
         }
     }
 
@@ -695,10 +906,13 @@ class Scene extends Object {
 
     #renderDebugInfo(ctx) {
         if (this.is2D) {
-            ctx.fillStyle = 'white';
+            ctx.save();
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0, 0, 250, 220);
+            ctx.fillStyle = '#00ff00';
             ctx.font = '12px monospace';
             const y = 20;
-            const lineHeight = 15;
+            const lineHeight = 16;
             let i = 0;
             ctx.fillText(`Scene: ${this.name}`, 10, y + i++ * lineHeight);
             ctx.fillText(`Mode: ${this.mode}`, 10, y + i++ * lineHeight);
@@ -707,12 +921,11 @@ class Scene extends Object {
             ctx.fillText(`GameOver: ${this.#isGameOver}`, 10, y + i++ * lineHeight);
             ctx.fillText(`Entities: ${this.#entities.size}`, 10, y + i++ * lineHeight);
             ctx.fillText(`Time: ${this.#time.toFixed(2)}s`, 10, y + i++ * lineHeight);
+            ctx.fillText(`FPS: ${this.#fps}`, 10, y + i++ * lineHeight);
             ctx.fillText(`Children: ${this.children.length}`, 10, y + i++ * lineHeight);
-            ctx.fillText(`Layers: ${this.getLayerMask()}`, 10, y + i++ * lineHeight);
-            ctx.fillText(`AutoClear: ${this.autoClear}`, 10, y + i++ * lineHeight);
-            ctx.fillText(`AutoSort: ${this.autoSort}`, 10, y + i++ * lineHeight);
-            ctx.fillText(`Loading: ${this.#isLoading} (${(this.getLoadProgress() * 100).toFixed(0)}%)`, 10, y + i++ * lineHeight);
-            ctx.fillText(`Fog: ${this.#fog ? this.#fog.name : 'none'}`, 10, y + i++ * lineHeight);
+            ctx.fillText(`Layers: ${this.#layers}`, 10, y + i++ * lineHeight);
+            ctx.fillText(`DrawCalls: ${this.__renderStats.drawCalls}`, 10, y + i++ * lineHeight);
+            ctx.restore();
         }
     }
 
@@ -727,7 +940,10 @@ class Scene extends Object {
         if (this.isDestroyed) return;
         this.clearEntities();
         this.#fog = null;
+        this.#camera = null;
+        this.#renderer = null;
         this.#hooks = {};
+        this.#renderQueue = [];
         super.destroy();
         this.emit('sceneDestroyed', { scene: this });
         Logger.log(`Scene "${this.name}" destroyed`);
