@@ -35,7 +35,7 @@ class Fog extends EventEmitter {
     active = true;
 
     constructor(options = {}) {
-        super();  // ← PANGGIL EVENTEMITTER!
+        super();  
         
         this.#type = options.type || 'none';
         this.#density = options.density || 0.01;
